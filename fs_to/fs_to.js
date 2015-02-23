@@ -842,7 +842,7 @@
 	var fromPage = 0, tryToSearch = true;
 	
 	// 1-link,2-image,3-title,4-genres,5-positive rating,6-negative rating, 7-description
-	var re = /<a href="([\S\s]{0,200}?)"[\S\s]{0,200}?<img src="([\S\s]*?)"[\S\s]*?results-item-title">([\S\s]*?)<\/span>[\S\s]*?results-item-genres">([\S\s]*?)<\/span>[\S\s]*?results-item-rating-positive">([\S\s]*?)<\/span>[\S\s]*?results-item-rating-negative">([\S\s]*?)<\/span>[\S\s]*?results-item-description">([\S\s]*?)<\/span>/g;
+	var re = /<a href="([^"]{0,200}?)"[\S\s]{0,200}?<img src="([\S\s]*?)"[\S\s]*?results-item-title">([\S\s]*?)<\/span>[\S\s]*?results-item-genres">([\S\s]*?)<\/span>[\S\s]*?results-item-rating-positive">([\S\s]*?)<\/span>[\S\s]*?results-item-rating-negative">([\S\s]*?)<\/span>[\S\s]*?results-item-description">([\S\s]*?)<\/span>/g;
 	
 	function loader() {
             if (!tryToSearch) return false;
