@@ -30,6 +30,81 @@
         service.baseUrl = v;
     });
 
+	////////////////////////////////////////////Login of site & Exit of site///////////////////////////////////////
+	
+	settings.createDivider('Авторизация на FS.TO');	
+	var store = plugin.createStore('authinfo', true);
+	
+	// Залогинится
+	settings.createAction('createAuth', 'Войти на сайт', function login(){	
+		var credentials = plugin.getAuthCredentials(plugin.getDescriptor().synopsis, 
+		                                            'Пожалуйста введите свой логин и пароль от сайта', true);    
+		
+		if (credentials.rejected) {
+            showtime.notify('Для завершения авторизации вы должны ввести логин и пароль вашего аккаунта', 5, '');
+            return;
+        }
+	    if (credentials.username && credentials.password) {			
+	        var doc = showtime.httpReq(service.baseUrl.toString() + "/login.aspx", {
+			    headers: {"Accept": "application/json, text/javascript, */*; q=0.01",
+                          "Accept-Language": "ru,en-US;q=0.7,en;q=0.3",
+                          "Accept-Encoding": "gzip, deflate",
+                          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                          "X-Requested-With": "XMLHttpRequest",
+                          "Referer": "http://fs.to/",
+                          "Connection": "keep-alive",
+                          "Pragma": "no-cache",
+                          "Cache-Control": "no-cache",},
+                postdata: "login=" + credentials.username + "&passwd=" + credentials.password + "&remember=1",
+			    noFail: true,
+			    debug: true,
+				noFollow: true
+            });
+			  
+			showtime.notify("Отсылаем запрос на авторизацию", 5, '');
+			if (doc.statuscode == 200){
+			    if (doc.toString().match(/"state":"auth_success"/) || doc.toString().match(/isLogged : true/)) {
+			        store.access_data = { username : credentials.username, password : credentials.password };
+			        showtime.notify("Авторизация успешна", 5, '');
+				} else if (doc.toString().match(/"state":"auth_error"/) || doc.toString().match(/isLogged : false/)){
+					        showtime.notify("Авторизация не удачна, логин или пароль введены неверно.", 5, '');
+							login();
+						} else showtime.notify("Что то здесь не так нужно разобраться", 5, '');
+			} else {
+			    showtime.notify("Запрос на авторизацию не удачен, статус=" + doc.statuscode , 5, '');
+			}			
+        } else {
+	        showtime.notify('Для завершения авторизации вы должны ввести логин и пароль вашего аккаунта', 5, '');
+            login();				
+		}
+	});
+	
+	// Разлогинится
+	settings.createAction('clearAuth', 'Выйти с сайта', function() {
+	    var confirm = showtime.message("Вы уверены, что хотите разлогинится на сайте", true, true);
+	    if (confirm){
+	        store.access_data = {};
+	   		var doc = showtime.httpReq(service.baseUrl.toString() + "/logout.aspx", { 
+	    	    headers: {"Accept": "application/json, text/javascript, */*; q=0.01",
+                          "Accept-Language": "ru,en-US;q=0.7,en;q=0.3",
+                          "Accept-Encoding": "gzip, deflate",
+                          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                          "X-Requested-With": "XMLHttpRequest",
+                          "Referer": "http://fs.to/",
+                          "Connection": "keep-alive",
+                          "Pragma": "no-cache",
+                          "Cache-Control": "no-cache",},
+                postdata: "",
+	    	    noFail: true,
+	    	    debug: true,
+	    		noFollow: true
+            });
+            showtime.notify('Movian разлогинен на FS.TO', 3, '');
+		}
+    });
+ 
+ /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     function setPageHeader(page, title) {
         if (page.metadata) {
             page.metadata.title = title;
@@ -821,6 +896,77 @@
         }
         processScroller(page, url);
     });
+	
+
+	/////////////////////////////////////////////////// Lists favorite menu///////////////////////////////////////////////////
+	
+	plugin.addURI(plugin.getDescriptor().id + ":myfavourites", function(page) {
+        setPageHeader(page, "В избранном на FS.to");
+		response = showtime.httpReq(service.baseUrl + "/myfavourites.aspx").toString().replace(/<div class="b-header__menu-section m-header__menu-section_type_fsua">/g, '');
+		
+        // Building favorite menu
+		var menu = response.match(/<div class="b-tabs-decorated">[\S\s]*?<ul>[\S\s]*?(<li[\S\s]*<\/li>)[\S\s]*?<\/ul>[\S\s]*?<\/div>/)[1]; //находим блок меню
+		
+		//1-url, 2-title
+		var re = /<li[\S\s]*?<a href="([\S\s]*?)">([\S\s]*?)<\/a><\/li>/g; 
+		var match = re.exec(menu);
+		while (match) {
+            page.appendItem(plugin.getDescriptor().id + ":myfavourites_menu:" + match[1]+ ':' + escape(trim(match[2].replace(/&nbsp;/, " "))), 'directory', {
+                title: trim(match[2].replace(/&nbsp;/, " "))
+            });
+            match = re.exec(menu);
+        }
+        page.loading = false;		
+    });
+	
+	plugin.addURI(plugin.getDescriptor().id + ":myfavourites_menu:(.*):(.*)", function(page, url, title) {
+	    setPageHeader(page, unescape(title));
+		response = showtime.httpReq(service.baseUrl + url).toString().replace(/<div class="b-header__menu-section m-header__menu-section_type_fsua">/g, '');
+		
+		//0-subsection, 1-title, 2-section, 3-subsection
+		var re = /<span class="section-title"><b>([\S\s]*?)<\/b>[\S\s]*?<div class="b-section-footer">[\S\s]*?<a href="#" class="b-add" rel="\{section: '([\S\s]*?)', subsection: '([\S\s]*?)'\}[\S\s]*?<\/div>[\S\s]*?<\/div>/g;		
+		var match = re.exec(response);
+		while (match) {
+		    page.appendItem(plugin.getDescriptor().id + ":myfavourites_content:" + url + ':' + escape(trim(match[1])) + ':' + match[2] + ':' +  match[3], 'directory', {
+                title: trim(match[1])
+            });
+		    match = re.exec(response);
+		}
+		page.loading = false;
+	});
+	
+	plugin.addURI(plugin.getDescriptor().id + ":myfavourites_content:(.*):(.*):(.*):(.*)", function(page, url, title, section, subsection) {
+	    setPageHeader(page, unescape(title));
+		
+		//1-url, 2- poster 3-title
+	    var re = /<a href="([\S\s]*?)" class="b-poster-thin[\S\s]*?style="background-image: url\('([\S\s]*?)'\)"[\S\s]*?<b class=[\S\s]*?<span>([\S\s]*?)<\/p><\/span><\/b>[\S\s]*?<\/a>/g ;
+		var curpage, dig_curpage = 0;
+		do{
+			if (!dig_curpage) {
+			    curpage = "";
+			} else {
+			    curpage = dig_curpage;
+			}
+		    var ajax = url.split("?")[0] + "?" + "ajax&" + url.split("?")[1] + "&section=" + section + "&subsection=" + subsection + "&action=get_list&rows=1&curpage=" + curpage;
+			response = showtime.httpReq(service.baseUrl + ajax).toString();
+			var obj_response = showtime.JSONDecode(response);
+			match = re.exec(obj_response.content);
+			while (match) {		 
+                title = match[3].replace('<p>', " / ").replace('</p><p>', " ").replace('</p>', "");
+                page.appendItem(plugin.getDescriptor().id +":listRoot:" + match[1]+ ':' + escape(trim(match[3])), 'video', {
+                    title: new showtime.RichText(title),
+                    icon: match[2]
+                });
+			 match = re.exec(obj_response.content);
+            }			
+			dig_curpage++ ;
+        } while (!obj_response.islast);			
+		  
+		 page.loading = false;
+		 
+	});
+	
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     function setIconSize(s, size) {
         result = s;
@@ -856,6 +1002,16 @@
                 match = re.exec(response);
             }
         }
+		
+		//////////////////////////////////////////////If login, add my favorites/////////////////////////////////// 
+		
+		if (response.match(/b-header__user-icon b-header__user-favourites/)){
+		    page.appendItem(plugin.getDescriptor().id + ":myfavourites", 'directory', {
+                    title: "В избранном на FS.to"
+                });
+		}	
+		
+		//////////////////////////////////////////////////////////////////////////////////////////////////////////
 
         // Scraping commentable
         comments = response.match(/<div class="b-main__top-commentable-inner">([\S\s]*?)<div class="b-clear">/);
