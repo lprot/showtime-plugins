@@ -62,7 +62,7 @@
             });
 			  
 			showtime.notify("Отсылаем запрос на авторизацию", 5, '');
-			if (doc.statuscode == 200){
+			//if (doc.statuscode == 200){ //Available only from 4.99.211 version
 			    if (doc.toString().match(/"state":"auth_success"/) || doc.toString().match(/isLogged : true/)) {
 			        store.access_data = { username : credentials.username, password : credentials.password };
 			        showtime.notify("Авторизация успешна", 5, '');
@@ -70,9 +70,7 @@
 					        showtime.notify("Авторизация не удачна, логин или пароль введены неверно.", 5, '');
 							login();
 						} else showtime.notify("Что то здесь не так нужно разобраться", 5, '');
-			} else {
-			    showtime.notify("Запрос на авторизацию не удачен, статус=" + doc.statuscode , 5, '');
-			}			
+			//} else {showtime.notify("Запрос на авторизацию не удачен, статус=" + doc.statuscode , 5, '');}			
         } else {
 	        showtime.notify('Для завершения авторизации вы должны ввести логин и пароль вашего аккаунта', 5, '');
             login();				
@@ -218,7 +216,7 @@
 
         // Scrape icon
 	var icon = response.match(/<link rel="image_src" href="([^"]+)"/);
-	if (icon) icon = icon[1];
+	if (icon) icon = "http:" + icon[1];
 
         // Scrape description
 	var description = response.match(/<p class="item-decription [^"]+">([\S\s]*?)<\/p>/);
@@ -955,7 +953,7 @@
                 title = match[3].replace('<p>', " / ").replace('</p><p>', " ").replace('</p>', "");
                 page.appendItem(plugin.getDescriptor().id +":listRoot:" + match[1]+ ':' + escape(trim(match[3])), 'video', {
                     title: new showtime.RichText(title),
-                    icon: match[2]
+                    icon: setIconSize(match[2], 2)
                 });
 			 match = re.exec(obj_response.content);
             }			
@@ -969,6 +967,7 @@
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     function setIconSize(s, size) {
+	    s = "http:" + s; //Fixed posters
         result = s;
         var lastMatch = s.lastIndexOf('/');
         if (lastMatch != -1)
