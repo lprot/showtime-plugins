@@ -200,7 +200,7 @@
         var i = 0;
         while (m) {
             i++;
-            page.appendItem(m[1], "image", {
+            page.appendItem("http:" + m[1], "image", {
                 title: 'Скриншот' + i
             });
             m = re.exec(screens);
@@ -214,21 +214,34 @@
         setPageHeader(page, title);
         var response = showtime.httpReq(service.baseUrl + url).toString();
 
+		// Scrape iframe obj
+	    var iframe_url = response.match(/<iframe src="([\S\s]*?)"/);
+		if (iframe_url && iframe_url[1] != "about: blank") { 
+		    iframe_url = iframe_url[1];
+		    var iframe_obj_response = showtime.httpReq(service.baseUrl + iframe_url, { 
+	    	    headers: {
+                          "X-Requested-With": "XMLHttpRequest",
+                         }
+			});
+			if (iframe_obj_response) var obj_resp = showtime.JSONDecode(iframe_obj_response);
+		}
+		
         // Scrape icon
-	var icon = response.match(/<link rel="image_src" href="([^"]+)"/);
-	if (icon) icon = "http:" + icon[1];
+	    var icon = response.match(/<link rel="image_src" href="([^"]+)"/);
+	    if (icon) icon = "http:" + icon[1];
 
         // Scrape description
-	var description = response.match(/<p class="item-decription [^"]+">([\S\s]*?)<\/p>/);
-	if (description) description = coloredStr("Описание: ", orange) + description[1]; else description = '';
+	    var description = response.match(/<p class="item-decription [^"]+">([\S\s]*?)<\/p>/);
+	    if (description) description = coloredStr("Описание: ", orange) + description[1]; else description = '';
 
         // Scrape duration
         var duration = response.match(/itemprop="duration"[\S\s]*?>([\S\s]*?)<\/span>/);
         if (duration) duration = duration[1].trim().substr(0, 8);
 
-        // Scrape item info
+        // Scrape item info		
         var iteminfo = response.match(/<div class="item-info">([\S\s]*?)<\/div>/);
-        if (iteminfo) {
+		
+        if (iteminfo) {  //(This  old design)
            iteminfo = iteminfo.toString();
            // Scrape years
            var year = iteminfo.match(/Год:[\S\s]*?<span>([\S\s]*?)<\/span>/);
@@ -259,7 +272,26 @@
            htmlBlock = iteminfo.match(/Статус:[\S\s]*?<\/td>[\S\s]*?>([\S\s]*?)<\/td>/);
            if (htmlBlock)
               description = coloredStr("Статус: ", orange) + trim(htmlBlock[1]) + " " + description;
-        };
+        
+		} else if (obj_resp) { //(This new design)
+		    // Scrape years
+            if (obj_resp.coverData.year){
+			    var year = obj_resp.coverData.year[0].title;
+			} else if (obj_resp.coverData.view_period){ // handle as serials
+			    year = obj_resp.coverData.view_period.show_start.title
+			};			
+			// Scrape genres
+			if (obj_resp.coverData.genre && obj_resp.coverData.genre.length > 0) {
+			    var genres = "";
+			    for (var i = 0; i < obj_resp.coverData.genre.length; i++){
+				    if (i === 0) genres = obj_resp.coverData.genre[i].title; 
+					else genres = genres + ", " + obj_resp.coverData.genre[i].title;
+				}
+			} 
+			// Try to get status
+			if (obj_resp.coverData.status) description = coloredStr("Статус: ", orange) + trim(obj_resp.coverData.status) + " " + description;
+        }	
+		
         // Scrape votes
         htmlBlock = response.match(/<div class="b-tab-item__vote-value m-tab-item__vote-value_type_yes">([\S\s]*?)<\/div>[\S\s]*?<div class="b-tab-item__vote-value m-tab-item__vote-value_type_no">([\S\s]*?)<\/div>/);
         if (htmlBlock) {
@@ -268,10 +300,14 @@
 
         // scrape original title
         htmlBlock = response.match(/itemprop="alternativeHeadline">([\S\s]*?)<\/div>/);
-        if (htmlBlock) {
+        if (htmlBlock) {  // old design
             title += ' | ' + htmlBlock[1];
             page.metadata.title += ' | ' + htmlBlock[1];
-        }
+        } else if (obj_resp){ //new design data of "iframe"
+			if (obj_resp.coverData.title_origin){
+			    title += ' | ' + obj_resp.coverData.title_origin;
+			}	
+		}
 
         playOnlineUrl = url;
         page.appendItem(plugin.getDescriptor().id + ":playOnline:" + escape(title), "video", {
@@ -293,14 +329,29 @@
         } // Scrape trailer
 
         // Scrape screenshots
-        htmlBlock = response.match(/<div class="items">([\S\s]*?)<\/div>/);
-        if (htmlBlock) {
-            if (trim(htmlBlock[1])) {
-                page.appendItem(plugin.getDescriptor().id + ':screens:' + escape(htmlBlock[1])+':'+escape(title), "directory", {
+		///////////////////////////if new player on page... page include "iframe"///////////////////////////////
+		if (obj_resp){	
+			if (obj_resp.coverData.screens && obj_resp.coverData.screens.length > 0){
+			    var screen_str = "";
+			    for (var i = 0; i < obj_resp.coverData.screens.length; i++){
+				    screen_str = screen_str + "rel=\"" + obj_resp.coverData.screens[i].url1 + "\""; //for compatibility with the handler
+				}
+                page.appendItem(plugin.getDescriptor().id + ':screens:' + escape(screen_str)+':'+escape(title), "directory", {
                     title: 'Скриншоты'
-                });
+				});			    
+			}
+		 ///////////////////////////////////if old player on page/////////////////////////////////////////	
+		} else {
+		    htmlBlock = response.match(/<div class="items">([\S\s]*?)<\/div>/);
+            if (htmlBlock) {
+                if (trim(htmlBlock[1])) {
+                    page.appendItem(plugin.getDescriptor().id + ':screens:' + escape(htmlBlock[1])+':'+escape(title), "directory", {
+                        title: 'Скриншоты'
+                    });
+                }
             }
-        } // Scrape screenshots
+	    } 
+		// Scrape screenshots
 
         var what_else = response.match(/<div class="b-posters">([\S\s]*?)<div class="clear">/);
 
@@ -416,7 +467,72 @@
                     };
                 }
             }; // handle as shows
-        };
+        } else if(obj_resp) {
+		    // Show year
+            if (obj_resp.coverData.year){
+                page.appendItem("", "separator", {
+                    title: 'Год'
+                });
+                page.appendItem(plugin.getDescriptor().id + ":index:" + escape(service.baseUrl + obj_resp.coverData.year[0].link) + ":" + escape(obj_resp.coverData.year[0].title) + ':no:&sort=rating', "directory", {
+                    title: obj_resp.coverData.year[0].title
+                });
+            } else if (obj_resp.coverData.view_period){  // handle as serials
+                    page.appendItem("", "separator", {
+                        title: 'Год'
+                    });
+                    page.appendItem(plugin.getDescriptor().id + ":index:" + escape(service.baseUrl + obj_resp.coverData.view_period.show_start.link) + ":" + escape(obj_resp.coverData.view_period.show_start.title) + ':no:&sort=rating', "directory", {
+                        title: obj_resp.coverData.view_period.show_start.title
+                    });
+            }       
+		
+		    // Scrape genres
+            if (obj_resp.coverData.genre && obj_resp.coverData.genre.length > 0) {
+                page.appendItem("", "separator", {
+                    title: 'Жанр'
+                });
+				for (var i = 0; i < obj_resp.coverData.genre.length; i++){
+                    page.appendItem(plugin.getDescriptor().id + ":index:" + escape(service.baseUrl + obj_resp.coverData.genre[i].link) + ":" + escape('Отбор по жанру: '+ obj_resp.coverData.genre[i].title) + ':no:&sort=year', "directory", {
+                        title: obj_resp.coverData.genre[i].title
+                    });
+				}	
+            }; // Scrape genres
+			
+			// Scrape countries
+            if (obj_resp.coverData.made_in && obj_resp.coverData.made_in.length > 0) {
+                page.appendItem("", "separator", {
+                    title: 'Страна'
+                });
+				for (var i = 0; i < obj_resp.coverData.made_in.length; i++){
+                    page.appendItem(plugin.getDescriptor().id + ":index:" + escape(service.baseUrl + obj_resp.coverData.made_in[i].link) + ":" + escape('Отбор по стране: '+ obj_resp.coverData.made_in[i].title) + ':no:&sort=year', "directory", {
+                        title: obj_resp.coverData.made_in[i].title
+                    });
+				}	
+            }; // Scrape countries
+			
+	        // Show directors
+			if (obj_resp.coverData.director && obj_resp.coverData.director.length > 0) {
+                page.appendItem("", "separator", {
+                    title: 'Режиссеры'
+                });
+				for (var i = 0; i < obj_resp.coverData.director.length; i++){
+                    page.appendItem(plugin.getDescriptor().id + ":index:" + escape(service.baseUrl + obj_resp.coverData.director[i].link) + ":" + escape('Отбор по режисерам: '+ obj_resp.coverData.director[i].title) + ':no:&sort=year', "directory", {
+                        title: obj_resp.coverData.director[i].title
+                    });
+				}	
+            };// Show directors
+			
+	        // Show actors
+			if (obj_resp.coverData.cast && obj_resp.coverData.cast.length > 0) {
+                page.appendItem("", "separator", {
+                    title: 'Актёры'
+                });
+				for (var i = 0; i < obj_resp.coverData.cast.length; i++){
+                    page.appendItem(plugin.getDescriptor().id + ":index:" + escape(service.baseUrl + obj_resp.coverData.cast[i].link) + ":" + escape('Отбор по актёрам: '+ obj_resp.coverData.cast[i].title) + ':no:&sort=year', "directory", {
+                        title: obj_resp.coverData.cast[i].title
+                    });
+				}	
+            };// Show actors
+		};	
 
         // Show related
         if (what_else) {
@@ -532,7 +648,8 @@
                         directlink: direct_link
                     });
                     page.appendItem(plugin.getDescriptor().id + ":play:" + escape(name) + ':' + pos, 'video', {
-                        title: new showtime.RichText(name + ' ' + colorStr(size, blue))
+                        title: new showtime.RichText(name + ' ' + colorStr(size, blue)),
+						icon: "data:image/png;base64,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"
                     });
                     pos++;
                 } else {
@@ -632,38 +749,65 @@
         return imdbid;
     };
 
-    // Processes "Play online" button
+	// Processes "Play online" button
     var playOnlineUrl;
-    plugin.addURI(plugin.getDescriptor().id + ":playOnline:(.*)", function(page, title) {
+    plugin.addURI(plugin.getDescriptor().id + ":playOnline:(.*)", function(page, title) {    	
         page.loading = true;
         var response = showtime.httpReq(service.baseUrl + playOnlineUrl).toString();
         page.loading = false;
-        var url = response.match(/playlist: \[[\S\s]*?url: '([^']+)/) // Some clips autoplay
-        if (!url) {
-            page.loading = true;
-            response = showtime.httpReq(service.baseUrl + response.match(/<div id="page-item-viewonline"[\S\s]*?<a href="([^"]+)/)[1]).toString();
-            page.loading = false;
-            response = response.match(/<a id="[\S\s]*?" href="([\S\s]*?)" title="([\S\s]*?)"/);
-            if (!response) {
-                page.error("Линк на проигрывание отсутствует :(");
-                return;
-            }
-            page.loading = true;
-            url = showtime.httpReq(service.baseUrl + response[1]).toString().match(/playlist: \[[\S\s]*?url: '([^']+)/);
-            page.loading = false;
-        }
-        page.type = "video";
-        page.source = "videoparams:" + showtime.JSONEncode({
-            title: unescape(title),
-            imdbid: getIMDBid(title),
-            canonicalUrl: plugin.getDescriptor().id + ":playOnline:" + title,
-            sources: [{
-                url: service.baseUrl + url[1]
-            }]
-        });
-    });
+		
+		var iframe_url = response.match(/<iframe src="([\S\s]*?)"/);
+		if (iframe_url && iframe_url[1] != "about: blank") {
+		    iframe_url = iframe_url[1];
+		    var iframe_obj_response = showtime.httpReq(service.baseUrl + iframe_url, { 
+	    	    headers: {
+                          "X-Requested-With": "XMLHttpRequest",
+                         }
+			});
+			if (iframe_obj_response) var obj_resp = showtime.JSONDecode(iframe_obj_response);
+			
+			
+		    if (obj_resp.actionsData.rootQualityFlag == 'hd'){
+			    var link = obj_resp.actionsData.files[0].url.replace(".mp4", "_hd.mp4");
+			} else link = obj_resp.actionsData.files[0].url;
 
-    // Play URL
+			page.type = "video";
+            page.source = "videoparams:" + showtime.JSONEncode({
+                title: unescape(title),
+                imdbid: getIMDBid(title),
+                canonicalUrl: plugin.getDescriptor().id + ":playOnline:" + title,
+                sources: [{
+			        url: service.baseUrl + link
+                }]
+            });
+		} else {
+            var url = response.match(/playlist: \[[\S\s]*?url: '([^']+)/) // Some clips autoplay
+            if (!url) {
+                page.loading = true;
+                response = showtime.httpReq(service.baseUrl + response.match(/<div id="page-item-viewonline"[\S\s]*?<a href="([^"]+)/)[1]).toString();
+                page.loading = false;
+                response = response.match(/<a id="[\S\s]*?" href="([\S\s]*?)" title="([\S\s]*?)"/);
+                if (!response) {
+                    page.error("Линк на проигрывание отсутствует :(");
+                    return;
+                }
+                page.loading = true;
+                url = showtime.httpReq(service.baseUrl + response[1]).toString().match(/playlist: \[[\S\s]*?url: '([^']+)/);
+                page.loading = false;
+            }
+            page.type = "video";
+            page.source = "videoparams:" + showtime.JSONEncode({
+                title: unescape(title),
+                imdbid: getIMDBid(title),
+                canonicalUrl: plugin.getDescriptor().id + ":playOnline:" + title,
+                sources: [{
+                    url: service.baseUrl + url[1]
+                }]
+            });
+        }			
+    });
+	
+	// Play URL
     plugin.addURI(plugin.getDescriptor().id + ":play:(.*):(.*)", function(page, title, pos) {
         page.type = "video";
         page.loading = true;
