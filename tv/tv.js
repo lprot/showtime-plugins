@@ -649,7 +649,7 @@
             var doc = showtime.httpReq(url).toString();
             page.loading = false;
             // 1-title, 2-url, 3-icon
-            var re = /<div class="all_tv" title="([\S\s]*?)">[\S\s]*?<a href="([\S\s]*?)">[\S\s]*?<img src="([\S\s]*?)"/g;
+            var re = /<div class="all_tv" title="(.*?)">[\S\s]{0,2}?.*<a.*?href="(.*?)" title=".*?"><img src="(.*?)"><\/a>/g;
             var match = re.exec(doc);
             while (match) {
                 var link = plugin.getDescriptor().id + ":tivix:" + escape(match[2]) + ':' + escape(match[1]);
