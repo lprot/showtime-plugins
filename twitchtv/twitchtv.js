@@ -21,7 +21,7 @@
 (function(plugin) {
     var logo = plugin.path + "logo.png", API = 'https://api.twitch.tv/kraken';
     var itemsPerPage = 50;
-	var header={debug:true,headers:{'Client-ID':'awyezs6zu2vcnaekftdjy77evgk9jn'}};
+	var header={debug:false,headers:{'Client-ID':'awyezs6zu2vcnaekftdjy77evgk9jn'}};
 
     var service = plugin.createService(plugin.getDescriptor().title, plugin.getDescriptor().id + ":start", "video", true, logo);
 
@@ -55,7 +55,7 @@
     settings.createInfo("info", logo, plugin.getDescriptor().synopsis);
 
     var videoQualities = [
-        ['0', 'Source', true], ['1', 'High'], ['2', 'Medium'], ['3', 'Low'], ['4', 'Mobile']
+        ['0', 'chunked', true], ['1', '720p60'], ['2', '720p30'], ['3', '480p30']
     ];
     settings.createMultiOpt("videoQuality", "Video Quality", videoQualities, function(v) {
         service.videoQuality = v;
@@ -238,28 +238,48 @@
     plugin.addURI(plugin.getDescriptor().id + ":video:(.*):(.*)", function (page, id, name) {
         setPageHeader(page, plugin.getDescriptor().title + ' - ' + decodeURIComponent(name));
         page.loading = true;
-        var json = showtime.JSONDecode(showtime.httpReq('https://api.twitch.tv/api/videos/' + id, header ) );
+        var json = showtime.JSONDecode(showtime.httpReq('https://api.twitch.tv/kraken/videos/' + id, header ) );
         page.loading = false;
-        var start_offset = 0, end_offset = 0;
-        var n = 0;
-        for (var i in json.chunks.live) {
-            end_offset = start_offset + json.chunks.live[i].length;
-            if (start_offset > json.end_offset || end_offset < json.start_offset) {
-                start_offset += json.chunks.live[i].length;
-                continue;
+		page.type = "video";
+		var tit=json.title;
+        // Get sig and token
+        page.loading = true;
+		var idv=id.slice(1);
+        var json = showtime.JSONDecode(
+            showtime.httpReq('https://api.twitch.tv/api/vods/' + idv + '/access_token', header)
+        );
+
+        // Download playlist and split it into multilines
+        var playlist = showtime.httpReq('https://usher.ttvnw.net/vod/' + idv +
+            '.m3u8?sig=' + json.sig + '&token=' + json.token +
+            '&allow_source=true',header).toString().split('\n');
+
+        page.loading = false;
+        var url = null;
+
+        // Loop through the playlist and select preferred quality
+        for (var line = 0; line < playlist.length; line++) {
+            if (playlist[line].indexOf('EXT-X-MEDIA:TYPE=VIDEO') > -1) {
+                var url = playlist[line + 2];
+                if (playlist[line].indexOf(videoQualities[service.videoQuality].toString().split(',')[1]) > -1 || !service.videoQuality)
+                    break;
             }
-            n++;
-            page.appendItem(json.chunks.live[i].url, "video", {
-                title: new showtime.RichText('Chunk' + (+n) + ' ' + colorStr(start_offset + ' - ' + end_offset, orange)),
-                icon: json.preview,
-                duration: json.chunks.live[i].length,
-                description: new showtime.RichText(coloredStr('Title: ', orange) + decodeURIComponent(name) +
-                    coloredStr('\nStart offset: ', orange) + json.start_offset +
-                    coloredStr('\nEnd offset: ', orange) + json.end_offset
-                )
-            });
-            start_offset += json.chunks.live[i].length;
         }
+
+        page.loading = false;
+
+        if (!url) {
+            page.error("Cannot find stream URL.");
+            return;
+        }
+
+        page.source = "videoparams:" + showtime.JSONEncode({
+            title: tit,
+            sources: [{
+                url: url
+            }],
+            no_subtitle_scan: true
+        });
     });
 
     plugin.addURI(plugin.getDescriptor().id + ":play:(.*)", function (page, name) {
@@ -268,7 +288,7 @@
         // Get sig and token
         page.loading = true;
         var json = showtime.JSONDecode(
-            showtime.httpReq('http://api.twitch.tv/api/channels/' + name + '/access_token', header)
+            showtime.httpReq('https://api.twitch.tv/api/channels/' + name + '/access_token', header)
         );
 
         // Download playlist and split it into multilines
@@ -306,7 +326,7 @@
 
     plugin.addURI(plugin.getDescriptor().id + ":past:(.*):(.*)", function (page, name, display_name) {
         setPageHeader(page, plugin.getDescriptor().title + ' - Past broadcasts for: ' + decodeURIComponent(display_name));
-        var url = API + '/channels/' + name + '/videos?broadcasts=true';
+        var url = API + '/channels/' + name + '/videos?broadcast_type=archive';
         var tryToSearch = true;
 
         function loader() {
@@ -570,7 +590,7 @@
     plugin.addSearcher(plugin.getDescriptor().title + ' - Games', logo, function (page, query) {
         setPageHeader(page, plugin.getDescriptor().title + ' - Games');
         page.loading = true;
-        var json = showtime.JSONDecode(showtime.httpReq(API + '/search/games?type=suggest&q=' + encodeURIComponent(query) + '&live=true',header));
+        var json = showtime.JSONDecode(showtime.httpReq(API + '/search/games?type=suggest&query=' + encodeURIComponent(query) + '&live=true',header));
         page.loading = false;
         for (var i in json.games) {
             page.appendItem(plugin.getDescriptor().id + ":game:" + encodeURIComponent(json.games[i].name), "video", {
